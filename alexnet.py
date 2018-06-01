@@ -77,6 +77,7 @@ class AlexNet(object):
         # Load the weights into memory
         weights_dict = np.load(self.WEIGHTS_PATH, encoding='bytes').item()
 
+        print "loading"
         # Loop over all layer names stored in the weights dict
         for op_name in weights_dict:
 
@@ -97,6 +98,7 @@ class AlexNet(object):
                         else:
                             var = tf.get_variable('weights', trainable=False)
                             session.run(var.assign(data))
+        print "loading done"
 
 
 def conv(x, filter_height, filter_width, num_filters, stride_y, stride_x, name,
@@ -118,8 +120,9 @@ def conv(x, filter_height, filter_width, num_filters, stride_y, stride_x, name,
         weights = tf.get_variable('weights', shape=[filter_height,
                                                     filter_width,
                                                     input_channels/groups,
-                                                    num_filters])
-        biases = tf.get_variable('biases', shape=[num_filters])
+                                                    num_filters],
+                                                    trainable=False)
+        biases = tf.get_variable('biases', shape=[num_filters], trainable=False)
 
     if groups == 1:
         conv = convolve(x, weights)
@@ -150,8 +153,8 @@ def fc(x, num_in, num_out, name, relu=True):
 
         # Create tf variables for the weights and biases
         weights = tf.get_variable('weights', shape=[num_in, num_out],
-                                  trainable=True)
-        biases = tf.get_variable('biases', [num_out], trainable=True)
+                                  trainable=False)
+        biases = tf.get_variable('biases', [num_out], trainable=False)
 
         # Matrix multiply weights and inputs and add bias
         act = tf.nn.xw_plus_b(x, weights, biases, name=scope.name)
