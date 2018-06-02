@@ -5,17 +5,26 @@ import os
 import time
 import cv2
 from utils import *
+import finetune_utils
 
 tf.app.flags.DEFINE_string("alexnet_classes", "./imagenet-classes.txt", "label dir")
 tf.app.flags.DEFINE_boolean("use_alexnet", True, "use alexnet")
 tf.app.flags.DEFINE_float("keep_prob", 0.5, "drop out rate")
+
+tf.app.flags.DEFINE_boolean("use_raw_alexnet", False, "use prototype network")
+
 tf.app.flags.DEFINE_boolean("use_protonet", False, "use prototype network")
 tf.app.flags.DEFINE_integer("protonet_selected", 8, "protonet select num")
-tf.app.flags.DEFINE_integer("protonet_shot", 2, "protonet shot")
-tf.app.flags.DEFINE_integer("protonet_query", 3, "protonet query")
-tf.app.flags.DEFINE_integer("protonet_test", 2, "protonet test")
+tf.app.flags.DEFINE_integer("protonet_shot", 5, "protonet shot")
+tf.app.flags.DEFINE_integer("protonet_query", 1, "protonet query")
 tf.app.flags.DEFINE_integer("protonet_classnum", 50, "protonet class num")
 tf.app.flags.DEFINE_integer("protonet_epoch", 200, "protonet train epoch")
+
+tf.app.flags.DEFINE_boolean("use_finetune_1", True, "finetune 1")
+tf.app.flags.DEFINE_integer("finetune1_classnum", 50, "protonet class num")
+tf.app.flags.DEFINE_integer("finetune1_itemnum", 10, "protonet class num")
+tf.app.flags.DEFINE_integer("finetune1_epochnum", 100, "protonet class num")
+tf.app.flags.DEFINE_integer("finetune1_epoch", 150, "protonet train epoch")
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -48,9 +57,17 @@ def readAlexnetLabel():
         return f.readlines()    
 alexnet_label = readAlexnetLabel()
 
+def addXWB(x, num_in, num_out, name):
+    with tf.variable_scope(name) as scope:
+        weights = tf.get_variable('weights', shape=[num_in, num_out],
+                trainable=True)
+        biases = tf.get_variable('biases', [num_out], trainable=True)
+        act = tf.nn.xw_plus_b(x, weights, biases, name=scope.name)
+    return act
+
 with tf.Session() as sess:
     if FLAGS.use_alexnet:
-        if FLAGS.use_protonet == False:
+        if FLAGS.use_raw_alexnet == True:
             input_layer = tf.placeholder(tf.float32, [None, 227, 227, 3])
             model = AlexNet(input_layer, FLAGS.keep_prob, 1000, [])
 
@@ -66,21 +83,16 @@ with tf.Session() as sess:
             support_dim = FLAGS.protonet_classnum * FLAGS.protonet_shot
             query_dim = FLAGS.protonet_classnum * FLAGS.protonet_query
 
-            input_support = tf.placeholder(tf.float32, [support_dim, 227, 227, 3])
-            input_query = tf.placeholder(tf.float32, [query_dim, 227, 227, 3])
+            input_support = tf.placeholder(tf.float32, [None, 227, 227, 3])
+            input_query = tf.placeholder(tf.float32, [None, 227, 227, 3])
             y = tf.placeholder(tf.int64, [FLAGS.protonet_classnum, FLAGS.protonet_query])
             y_one_hot = tf.one_hot(y, depth = FLAGS.protonet_classnum)
 
             input_total = tf.concat([input_support, input_query], 0)
+
+#            input_total = tf.placeholder(tf.float32, [None, 227, 227, 3])
             model = AlexNet(input_total, FLAGS.keep_prob, 1000, [])
 
-            def addXWB(x, num_in, num_out, name):
-                with tf.variable_scope(name) as scope:
-                    weights = tf.get_variable('weights', shape=[num_in, num_out],
-                                            trainable=True)
-                    biases = tf.get_variable('biases', [num_out], trainable=True)
-                    act = tf.nn.xw_plus_b(x, weights, biases, name=scope.name)
-                    return act
             fc9 = addXWB(model.fc8, 1000, 256, "fc9")
             fc10 = addXWB(fc9, 256, 50, "fc10")
 
@@ -96,13 +108,15 @@ with tf.Session() as sess:
             dists = euclidean_distance(emb_query, emb_support)
 
             log_p_y = tf.reshape(tf.nn.log_softmax(-dists), [FLAGS.protonet_classnum, FLAGS.protonet_query, -1])
+
+            print log_p_y.shape
+
             ce_loss = -tf.reduce_mean(tf.reshape(tf.reduce_sum(tf.multiply(y_one_hot, log_p_y), axis=-1), [-1]))
 
             acc = tf.reduce_mean(tf.to_float(tf.equal(tf.argmax(log_p_y, axis=-1), y)))
-            train_op = tf.train.AdamOptimizer().minimize(ce_loss)
+            train_op = tf.train.AdamOptimizer(0.01).minimize(ce_loss)
 
             tf.global_variables_initializer().run()
-
             model.load_initial_weights(sess)
 
             train_dict = readTrainSet()
@@ -126,7 +140,42 @@ with tf.Session() as sess:
                 
                 _, loss, ac = sess.run([train_op, ce_loss, acc], feed_dict={input_support: support, input_query: query, y: labels})
 
-                if epi + 1 % 5 == 0:
+                if True:
+#                if epi + 1 % 5 == 0:
                     print '[episode {}/{}] => loss: {:.5f}, acc: {:.5f}'.format(epi + 1, FLAGS.protonet_epoch, loss, ac)
 
             ## test part
+        elif FLAGS.use_finetune_1 == True:
+            input_x = tf.placeholder(tf.float32, [None, 227, 227, 3])
+            label = tf.placeholder(tf.int32, [None])
+
+            model = AlexNet(input_x, FLAGS.keep_prob, 1000, [])
+
+            fc9 = addXWB(model.fc8, 1000, 256, "fc9")
+            fc10 = addXWB(fc9, 256, 50, "fc10")
+
+            loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=label, logits=fc10))
+        
+            correct_pred = tf.equal(tf.cast(tf.argmax(fc10, 1), tf.int32), tf.cast(label, tf.int32))
+        
+            pred = tf.argmax(fc10, 1)
+            acc = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
+
+            train_op = tf.train.AdamOptimizer(0.01).minimize(loss)
+
+            tf.global_variables_initializer().run()
+            model.load_initial_weights(sess)
+
+            train_dict = readTrainSet()
+            train_set = loadTrainSet(train_dict)
+
+            for i in range(FLAGS.finetune1_epoch):
+                x, _label = finetune_utils.genTrainSet(train_set, FLAGS.finetune1_epochnum)
+                _, lss, ac = sess.run([train_op, loss, acc], feed_dict={input_x: x, label: _label})
+
+                if (i + 1) % 5 == 0:
+                    print '[episode {}/{}] => loss: {:.5f}, acc: {:.5f}'.format(i + 1, FLAGS.finetune1_epoch, lss, ac)
+                    
+            x, _label = finetune_utils.genTestSet(train_set)
+            lss, ac = sess.run([loss, acc], feed_dict={input_x: x, label: _label})
+            print "final acc =>", ac
