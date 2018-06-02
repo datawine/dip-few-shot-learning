@@ -139,7 +139,10 @@ def conv(x, filter_height, filter_width, num_filters, stride_y, stride_x, name,
         conv = tf.concat(axis=3, values=output_groups)
 
     # Add biases
-    bias = tf.reshape(tf.nn.bias_add(conv, biases), conv.get_shape().as_list())
+    sp = conv.get_shape().as_list()
+    if sp[0] == None:
+        sp[0] = -1
+    bias = tf.reshape(tf.nn.bias_add(conv, biases), sp)
 
     # Apply relu function
     relu = tf.nn.relu(bias, name=scope.name)

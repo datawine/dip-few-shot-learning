@@ -4,16 +4,18 @@ from alexnet import AlexNet
 import os
 import time
 import cv2
+from utils import *
 
 tf.app.flags.DEFINE_string("alexnet_classes", "./imagenet-classes.txt", "label dir")
 tf.app.flags.DEFINE_boolean("use_alexnet", True, "use alexnet")
 tf.app.flags.DEFINE_float("keep_prob", 0.5, "drop out rate")
 tf.app.flags.DEFINE_boolean("use_protonet", False, "use prototype network")
-tf.app.flags.DEFINE_integer("protonet_shot", 3, "protonet shot")
-tf.app.flags.DEFINE_integer("protonet_query", 5, "protonet query")
+tf.app.flags.DEFINE_integer("protonet_selected", 8, "protonet select num")
+tf.app.flags.DEFINE_integer("protonet_shot", 2, "protonet shot")
+tf.app.flags.DEFINE_integer("protonet_query", 3, "protonet query")
 tf.app.flags.DEFINE_integer("protonet_test", 2, "protonet test")
 tf.app.flags.DEFINE_integer("protonet_classnum", 50, "protonet class num")
-tf.app.flags.DEFINE_integer("protonet_classnum", 50, "protonet class num")
+tf.app.flags.DEFINE_integer("protonet_epoch", 200, "protonet train epoch")
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -39,7 +41,7 @@ def genInput(filename):
     
     img_bgr = (img_bgr - VGG_MEAN).reshape((1, 227, 227, 3))
 
-    return np.concatenate((img_bgr, img_bgr, img_bgr), axis=0)
+    return img_bgr
 
 def readAlexnetLabel():
     with open(FLAGS.alexnet_classes, "r") as f:
@@ -49,7 +51,7 @@ alexnet_label = readAlexnetLabel()
 with tf.Session() as sess:
     if FLAGS.use_alexnet:
         if FLAGS.use_protonet == False:
-            input_layer = tf.placeholder(tf.float32, [3, 227, 227, 3])
+            input_layer = tf.placeholder(tf.float32, [None, 227, 227, 3])
             model = AlexNet(input_layer, FLAGS.keep_prob, 1000, [])
 
             pred = tf.cast(tf.argmax(model.fc8, 1), tf.int32)
@@ -80,22 +82,51 @@ with tf.Session() as sess:
                     act = tf.nn.xw_plus_b(x, weights, biases, name=scope.name)
                     return act
             fc9 = addXWB(model.fc8, 1000, 256, "fc9")
-            fc10 = addXWB(model.fc9, 256, 50, "fc9")
-            emb_support = tf.slice(fc9, [0, 0], [support_dim, 50])
-            emb_query = tf.slice(fc9, [support_dim, 0], [query_dim, 50])
+            fc10 = addXWB(fc9, 256, 50, "fc10")
+
+            emb_support = tf.slice(fc10, [0, 0], [support_dim, 50])
+            emb_query = tf.slice(fc10, [support_dim, 0], [query_dim, 50])
 
             def euclidean_distance(a, b):
                 N, D = tf.shape(a)[0], tf.shape(a)[1]
                 M = tf.shape(b)[0]
                 a = tf.tile(tf.expand_dims(a, axis=1), (1, M, 1))
                 b = tf.tile(tf.expand_dims(b, axis=0), (N, 1, 1))
-                return tf.reduce_mean(tf.square(a - b), axis=2)
-            dists = euclidean_distance(emb_support, emb_query)
-            log_p_y = tf.reshape(tf.nn.log_softmax(-dists), [FLAGS.protonet_classnum, FLAGS.protonet_shot, -1])
+                return tf.reduce_mean(tf.square(a - b), axis=1)
+            dists = euclidean_distance(emb_query, emb_support)
+
+            log_p_y = tf.reshape(tf.nn.log_softmax(-dists), [FLAGS.protonet_classnum, FLAGS.protonet_query, -1])
             ce_loss = -tf.reduce_mean(tf.reshape(tf.reduce_sum(tf.multiply(y_one_hot, log_p_y), axis=-1), [-1]))
 
             acc = tf.reduce_mean(tf.to_float(tf.equal(tf.argmax(log_p_y, axis=-1), y)))
+            train_op = tf.train.AdamOptimizer().minimize(ce_loss)
 
             tf.global_variables_initializer().run()
 
             model.load_initial_weights(sess)
+
+            train_dict = readTrainSet()
+            train_set = loadTrainSet(train_dict)
+
+            ## train part
+            support = np.zeros([support_dim, 227, 227, 3])
+            query = np.zeros([query_dim, 227, 227, 3])
+            labels = np.zeros([FLAGS.protonet_classnum, FLAGS.protonet_query])
+            for epi in range(FLAGS.protonet_epoch):
+                epi_classes = np.random.permutation(50)[:FLAGS.protonet_classnum]
+                for i, epi_cls in enumerate(epi_classes):
+                    selected = np.random.permutation(FLAGS.protonet_selected)[: FLAGS.protonet_shot + FLAGS.protonet_query]
+
+                    for j, sel in enumerate(selected):
+                        if j < FLAGS.protonet_shot:
+                            support[i * FLAGS.protonet_shot + j] = train_set[epi_cls + 1][sel + 1]
+                        else:
+                            query[i * FLAGS.protonet_query + j - FLAGS.protonet_shot] = train_set[epi_cls + 1][sel + 1]
+                            labels[i][j - FLAGS.protonet_shot] = epi_cls + 1
+                
+                _, loss, ac = sess.run([train_op, ce_loss, acc], feed_dict={input_support: support, input_query: query, y: labels})
+
+                if epi + 1 % 5 == 0:
+                    print '[episode {}/{}] => loss: {:.5f}, acc: {:.5f}'.format(epi + 1, FLAGS.protonet_epoch, loss, ac)
+
+            ## test part
