@@ -6,6 +6,7 @@ import time
 import cv2
 from utils import *
 import finetune_utils
+from sklearn import neighbors  
 
 tf.app.flags.DEFINE_string("alexnet_classes", "./imagenet-classes.txt", "label dir")
 tf.app.flags.DEFINE_boolean("use_alexnet", True, "use alexnet")
@@ -20,11 +21,14 @@ tf.app.flags.DEFINE_integer("protonet_query", 1, "protonet query")
 tf.app.flags.DEFINE_integer("protonet_classnum", 50, "protonet class num")
 tf.app.flags.DEFINE_integer("protonet_epoch", 200, "protonet train epoch")
 
-tf.app.flags.DEFINE_boolean("use_finetune_1", True, "finetune 1")
+tf.app.flags.DEFINE_boolean("use_finetune_1", False, "finetune 1")
 tf.app.flags.DEFINE_integer("finetune1_classnum", 50, "protonet class num")
 tf.app.flags.DEFINE_integer("finetune1_itemnum", 10, "protonet class num")
 tf.app.flags.DEFINE_integer("finetune1_epochnum", 100, "protonet class num")
 tf.app.flags.DEFINE_integer("finetune1_epoch", 150, "protonet train epoch")
+
+tf.app.flags.DEFINE_integer("train_class_num", 50, "train class num")
+tf.app.flags.DEFINE_integer("train_pic_num", 10, "train pic num")
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -78,7 +82,7 @@ with tf.Session() as sess:
 
             input_img = genInput("./training/009.bear/009_0001.jpg")
             pred = sess.run([pred], feed_dict={input_layer: input_img})[0]
-            print pred
+            print (pred)
         elif FLAGS.use_protonet == True:
             support_dim = FLAGS.protonet_classnum * FLAGS.protonet_shot
             query_dim = FLAGS.protonet_classnum * FLAGS.protonet_query
@@ -109,7 +113,7 @@ with tf.Session() as sess:
 
             log_p_y = tf.reshape(tf.nn.log_softmax(-dists), [FLAGS.protonet_classnum, FLAGS.protonet_query, -1])
 
-            print log_p_y.shape
+            print (log_p_y.shape)
 
             ce_loss = -tf.reduce_mean(tf.reshape(tf.reduce_sum(tf.multiply(y_one_hot, log_p_y), axis=-1), [-1]))
 
@@ -121,7 +125,7 @@ with tf.Session() as sess:
 
             train_dict = readTrainSet()
             train_set = loadTrainSet(train_dict)
-
+            print('??')
             ## train part
             support = np.zeros([support_dim, 227, 227, 3])
             query = np.zeros([query_dim, 227, 227, 3])
@@ -142,7 +146,7 @@ with tf.Session() as sess:
 
                 if True:
 #                if epi + 1 % 5 == 0:
-                    print '[episode {}/{}] => loss: {:.5f}, acc: {:.5f}'.format(epi + 1, FLAGS.protonet_epoch, loss, ac)
+                    print ('[episode {}/{}] => loss: {:.5f}, acc: {:.5f}'.format(epi + 1, FLAGS.protonet_epoch, loss, ac))
 
             ## test part
         elif FLAGS.use_finetune_1 == True:
@@ -174,8 +178,49 @@ with tf.Session() as sess:
                 _, lss, ac = sess.run([train_op, loss, acc], feed_dict={input_x: x, label: _label})
 
                 if (i + 1) % 5 == 0:
-                    print '[episode {}/{}] => loss: {:.5f}, acc: {:.5f}'.format(i + 1, FLAGS.finetune1_epoch, lss, ac)
+                    print ('[episode {}/{}] => loss: {:.5f}, acc: {:.5f}'.format(i + 1, FLAGS.finetune1_epoch, lss, ac))
                     
             x, _label = finetune_utils.genTestSet(train_set)
             lss, ac = sess.run([loss, acc], feed_dict={input_x: x, label: _label})
-            print "final acc =>", ac
+            print ("final acc =>", ac)
+        else:
+            input_x = tf.placeholder(tf.float32, [None, 227, 227, 3])
+            label = tf.placeholder(tf.int32, [None])
+            knn = neighbors.KNeighborsClassifier(n_neighbors=8,weights='distance')
+
+            model = AlexNet(input_x, FLAGS.keep_prob, 1000, [])
+            data = model.fc7
+            tf.global_variables_initializer().run()
+            model.load_initial_weights(sess)
+
+            datas = []
+            labels = []
+            test_datas = []
+            test_labels = []
+            x = np.zeros([1, 227, 227, 3])
+            y = np.zeros([1])
+
+            train_dict = readTrainSet()
+            train_set = loadTrainSet(train_dict)
+            
+            for i in range(1, FLAGS.train_class_num+1):
+                for j in range(1, FLAGS.train_pic_num-1):
+                    x = train_set[i][j]
+                    y[0] = i
+                    data_fc7 = sess.run([data], feed_dict={input_x: x, label: y})
+                    datas.append(data_fc7[0][0])
+                    labels.append(i)
+
+                knn.fit(datas, labels)#这个感觉好慢啊，每次都从新fit一遍
+                
+                for j in range(FLAGS.train_pic_num-1, FLAGS.train_pic_num+1):
+                    x = train_set[i][j]
+                    y[0] = i
+                    data_fc7 = sess.run([data], feed_dict={input_x: x, label: y})
+                    test_datas.append(data_fc7[0][0])
+                    test_labels.append(i)
+                acc = knn.score(test_datas, test_labels)
+                print ('[class {}/{}] => acc: {:.5f}'.format(i, 50, acc))
+                    
+
+

@@ -12,7 +12,10 @@ data_vector = [[3,104],[2,100],[1,81],[101,10],[99,5],[98,2],[48,25],[38,29],[42
 labels_vector = [1,1,1,2,2,2,3,3,3]
 data = np.array(data_vector)
 labels = np.array(labels_vector)
-knn.fit(data, labels) #导入数据进行训练   
+# data2 = np.array([[1,102],[49,30]])
+# labels2 = np.array([1,3])
+knn.fit(data, labels) #导入数据进行训练  
+# knn.fit(data2, labels2) 
 knn2.fit(data, labels)
 
 #直接预测是那个label

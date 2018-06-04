@@ -77,7 +77,7 @@ class AlexNet(object):
         # Load the weights into memory
         weights_dict = np.load(self.WEIGHTS_PATH, encoding='bytes').item()
 
-        print "loading"
+        print ("loading")
         # Loop over all layer names stored in the weights dict
         for op_name in weights_dict:
 
@@ -98,7 +98,7 @@ class AlexNet(object):
                         else:
                             var = tf.get_variable('weights', trainable=False)
                             session.run(var.assign(data))
-        print "loading done"
+        print ("loading done")
 
 
 def conv(x, filter_height, filter_width, num_filters, stride_y, stride_x, name,

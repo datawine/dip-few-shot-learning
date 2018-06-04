@@ -13,6 +13,7 @@ def genTrainSet(train_set, num):
     select_list = np.random.permutation(class_num * item_num)[:num]
     for i, select_item in enumerate(select_list):
         class_index = select_item / item_num
+        class_index = int(class_index)
         item_index = select_item % item_num
         x[i] = train_set[class_index + 1][item_index + 1]
         y[i] = class_index
