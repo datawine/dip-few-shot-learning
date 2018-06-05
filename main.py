@@ -8,8 +8,13 @@ import time
 import cv2
 from utils import *
 import finetune_utils
+<<<<<<< HEAD
 from sklearn import neighbors
 import sys
+=======
+from sklearn import neighbors  
+from sklearn.svm import SVC, LinearSVC
+>>>>>>> 1b06ad804087b516ff25d9b27170144562b8f48a
 
 tf.app.flags.DEFINE_string("alexnet_classes", "./imagenet-classes.txt", "label dir")
 tf.app.flags.DEFINE_boolean("use_alexnet", True, "use alexnet")
@@ -30,6 +35,7 @@ tf.app.flags.DEFINE_integer("finetune1_itemnum", 10, "protonet class num")
 tf.app.flags.DEFINE_integer("finetune1_epochnum", 100, "protonet class num")
 tf.app.flags.DEFINE_integer("finetune1_epoch", 150, "protonet train epoch")
 
+tf.app.flags.DEFINE_boolean("use_finetune_dot", False, "finetune dot")
 tf.app.flags.DEFINE_integer("train_class_num", 50, "train class num")
 tf.app.flags.DEFINE_integer("train_pic_num", 10, "train pic num")
 
@@ -217,15 +223,16 @@ with tf.Session() as sess:
             x, _label = finetune_utils.genTestSet(train_set)
             lss, ac = sess.run([loss, acc], feed_dict={input_x: x, label: _label})
             print ("final acc =>", ac)
-        else:
+        elif FLAGS.use_finetune_dot == True:
             input_x = tf.placeholder(tf.float32, [None, 227, 227, 3])
             label = tf.placeholder(tf.int32, [None])
-            knn = neighbors.KNeighborsClassifier(n_neighbors=10,weights='distance')
+            knn = neighbors.KNeighborsClassifier(n_neighbors=8,weights='uniform')
 
-            model = AlexNet(input_x, 1, 1000, [])
+            model = AlexNet(input_x, 1.0, 1000, [])
             data = model.fc7
             tf.global_variables_initializer().run()
             model.load_initial_weights(sess)
+            fc7_vector = finetune_utils.getFc7Array()
 
             datas = []
             labels = []
@@ -242,48 +249,70 @@ with tf.Session() as sess:
                     x = train_set[i][j]
                     y[0] = i
                     data_fc7 = sess.run([data], feed_dict={input_x: x, label: y})
-                    datas.append(data_fc7[0][0])
-                    labels.append(i - 1)
+                    data_vector = np.array(data_fc7).reshape((4096,1)).tolist()
+                    data_for_knn = (fc7_vector.dot(data_vector)).reshape((63996)).tolist()
+                    datas.append(data_for_knn)
+                    labels.append(i)
 
-#                knn.fit(datas, labels)#这个感觉好慢啊，每次都从新fit一遍
+                for j in range(FLAGS.train_pic_num-1, FLAGS.train_pic_num+1):
+                    x = train_set[i][j]
+                    y[0] = i
+                    data_fc7 = sess.run([data], feed_dict={input_x: x, label: y})
+                    data_vector = np.array(data_fc7).reshape((4096,1)).tolist()
+                    data_for_knn = (fc7_vector.dot(data_vector)).reshape((63996)).tolist()
+                    test_datas.append(data_for_knn)
+                    test_labels.append(i)
+                if i % 10 == 0:
+                    knn.fit(datas, labels)#这个感觉好慢啊，每次都从新fit一遍
+                    acc = knn.score(test_datas, test_labels)
+                    print ('[class {}/{}] => acc: {:.5f}'.format(i, 50, acc))
+        else: #svm
+            input_x = tf.placeholder(tf.float32, [None, 227, 227, 3])
+            label = tf.placeholder(tf.int32, [None])
+            clf = SVC(C=10,cache_size=500,tol=1e-4,kernel='linear')
+            linearSVC_clf = LinearSVC(C=10)
+
+            model = AlexNet(input_x, 1.0, 1000, [])
+            data = model.fc7
+            tf.global_variables_initializer().run()
+            model.load_initial_weights(sess)
+            fc7_vector = finetune_utils.getFc7Array()
+
+            datas = []
+            labels = []
+            test_datas = []
+            test_labels = []
+            x = np.zeros([1, 227, 227, 3])
+            y = np.zeros([1])
+                    
+            train_dict = readTrainSet()
+            train_set = loadTrainSet(train_dict)
+            for i in range(1, FLAGS.train_class_num+1):
+                for j in range(1, FLAGS.train_pic_num-1):
+                    x = train_set[i][j]
+                    y[0] = i
+                    data_fc7 = sess.run([data], feed_dict={input_x: x, label: y})
+                    data_vector = np.array(data_fc7).reshape((4096)).tolist()
+                    #data_for_knn = (fc7_vector.dot(data_vector)).reshape((63996)).tolist()
+                    datas.append(data_vector)
+                    labels.append(i)
                 
                 for j in range(FLAGS.train_pic_num-1, FLAGS.train_pic_num+1):
                     x = train_set[i][j]
                     y[0] = i
                     data_fc7 = sess.run([data], feed_dict={input_x: x, label: y})
-                    test_datas.append(data_fc7[0][0])
-                    test_labels.append(i - 1)
-#                acc = knn.score(test_datas, test_labels)
-#                print ('[class {}/{}] => acc: {:.5f}'.format(i, 50, acc))
+                    data_vector = np.array(data_fc7).reshape((4096)).tolist()
+                    #data_for_knn = (fc7_vector.dot(data_vector)).reshape((63996)).tolist()
+                    test_datas.append(data_vector)
+                    test_labels.append(i)
+                if i % 10 == 0:
+                    clf.fit(datas, labels)
+                    linearSVC_clf.fit(datas, labels)
+                    acc1 = clf.score(test_datas, test_labels)
+                    acc2 = linearSVC_clf.score(test_datas, test_labels)
+                    print ('   SVM:     [class {}/{}] => acc: {:.5f}'.format(i, 50, acc1))
+                    print ('linear_SVM: [class {}/{}] => acc: {:.5f}'.format(i, 50, acc2))
 
-            knn.fit(datas, labels)#这个感觉好慢啊，每次都从新fit一遍
-            acc = knn.score(test_datas, test_labels)
-            print ('[class {}/{}] => acc: {:.5f}'.format(i, 50, acc))
-            
-            '''
-            if FLAGS.use_xgboost == True:
-                xgb_train_data = np.zeros((50 * 8, 4096))
-                xgb_train_label = np.zeros((50 * 8,))
-                xgb_test_data = np.zeros((50 * 2, 4096))
-                xgb_test_label = np.zeros((50 * 2,))
-                for index, _data in enumerate(datas):
-                    xgb_train_data[index] = _data
-                    xgb_train_label[index] = labels[index]
-                for index, _data in enumerate(test_datas):
-                    xgb_test_data[index] = _data
-                    xgb_test_label[index] = test_labels[index]
-                
-                for eta in range(10, 200):
-                    for max_depth in range(5, 15):
-                        for num_round in range(4, 20):
-                            xgb_param['eta'] = eta * 0.01
-                            xgb_param['max_depth'] = max_depth
-
-                            xgb_train = xgb.DMatrix(xgb_train_data, label=xgb_train_label)
-                            bst = xgb.train(xgb_param, xgb_train, num_round)
-
-                            xgb_test = xgb.DMatrix(xgb_test_data)
-                            predict = bst.predict(xgb_test)
 
                             cnt = 0
                             for index, p in enumerate(predict):
