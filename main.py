@@ -76,11 +76,13 @@ def readAlexnetLabel():
 alexnet_label = readAlexnetLabel()
 
 def readFewshotLabel():
-    fewshot_label = []
+    fewshot_label = {}
     for dirs in os.listdir("./training"):
-        fewshot_label.append(dirs.split(".")[1])
+        if dirs.find(".") != 0:
+            fewshot_label[int(dirs.split(".")[0])] =  dirs.split(".")[1]
     return fewshot_label
 fewshot_label = readFewshotLabel()
+print fewshot_label
 
 def addXWB(x, num_in, num_out, name):
     with tf.variable_scope(name) as scope:
@@ -175,14 +177,14 @@ with tf.Session() as sess:
                 for j in range(10):
                     support[epi_cls][j] = train_set[epi_cls + 1][sel + 1]
             
-            for i in range(2500):
-                query[i][0] = test_set[i + 1]
-            p = sess.run([pred], feed_dict={input_support: support, input_query: query})[0]
-
             VGG_MEAN = np.tile(np.array([103.939, 116.779, 123.68]), (227, 227, 1))
             for i in range(2500):
-                print (fewshot_label[int(p[i])]) 
-                cv2.imshow("img", query[i][0] + VGG_MEAN)
+                query[i][0] = (test_set[i + 1] - VGG_MEAN).reshape(227, 227, 3)
+            p = sess.run([pred], feed_dict={input_support: support, input_query: query})[0]
+
+            for i in range(2500):
+                print (fewshot_label[int(p[i]) + 1]) 
+                cv2.imshow("img", test_set[i + 1])
                 cv2.waitKey(0)
 
         elif FLAGS.use_finetune_1 == True:
