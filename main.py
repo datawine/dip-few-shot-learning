@@ -8,13 +8,9 @@ import time
 import cv2
 from utils import *
 import finetune_utils
-<<<<<<< HEAD
-from sklearn import neighbors
-import sys
-=======
 from sklearn import neighbors  
 from sklearn.svm import SVC, LinearSVC
->>>>>>> 1b06ad804087b516ff25d9b27170144562b8f48a
+import sys
 
 tf.app.flags.DEFINE_string("alexnet_classes", "./imagenet-classes.txt", "label dir")
 tf.app.flags.DEFINE_boolean("use_alexnet", True, "use alexnet")
