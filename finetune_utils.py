@@ -33,3 +33,7 @@ def genTestSet(train_set):
         y[i * 2 + 1] = i
 
     return x, y
+
+def getFc7Array():
+    fc7 = np.load('./fc7.npy')
+    return np.array(fc7)

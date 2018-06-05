@@ -27,6 +27,7 @@ tf.app.flags.DEFINE_integer("finetune1_itemnum", 10, "protonet class num")
 tf.app.flags.DEFINE_integer("finetune1_epochnum", 100, "protonet class num")
 tf.app.flags.DEFINE_integer("finetune1_epoch", 150, "protonet train epoch")
 
+tf.app.flags.DEFINE_boolean("use_finetune_dot", True, "finetune dot")
 tf.app.flags.DEFINE_integer("train_class_num", 50, "train class num")
 tf.app.flags.DEFINE_integer("train_pic_num", 10, "train pic num")
 
@@ -183,15 +184,16 @@ with tf.Session() as sess:
             x, _label = finetune_utils.genTestSet(train_set)
             lss, ac = sess.run([loss, acc], feed_dict={input_x: x, label: _label})
             print ("final acc =>", ac)
-        else:
+        elif FLAGS.use_finetune_dot == True:
             input_x = tf.placeholder(tf.float32, [None, 227, 227, 3])
             label = tf.placeholder(tf.int32, [None])
-            knn = neighbors.KNeighborsClassifier(n_neighbors=8,weights='distance')
+            knn = neighbors.KNeighborsClassifier(n_neighbors=20,weights='distance')
 
-            model = AlexNet(input_x, FLAGS.keep_prob, 1000, [])
+            model = AlexNet(input_x, 1.0, 1000, [])
             data = model.fc7
             tf.global_variables_initializer().run()
             model.load_initial_weights(sess)
+            fc7_vector = finetune_utils.getFc7Array()
 
             datas = []
             labels = []
@@ -208,19 +210,23 @@ with tf.Session() as sess:
                     x = train_set[i][j]
                     y[0] = i
                     data_fc7 = sess.run([data], feed_dict={input_x: x, label: y})
-                    datas.append(data_fc7[0][0])
+                    data_vector = np.array(data_fc7).reshape(((4096,1)))
+                    data_for_knn = (fc7_vector.dot(data_vector)).reshape((63996)).tolist()
+                    datas.append(data_for_knn)
                     labels.append(i)
 
-                knn.fit(datas, labels)#这个感觉好慢啊，每次都从新fit一遍
-                
                 for j in range(FLAGS.train_pic_num-1, FLAGS.train_pic_num+1):
                     x = train_set[i][j]
                     y[0] = i
                     data_fc7 = sess.run([data], feed_dict={input_x: x, label: y})
-                    test_datas.append(data_fc7[0][0])
+                    data_vector = np.array(data_fc7).reshape(((4096,1)))
+                    data_for_knn = (fc7_vector.dot(data_vector)).reshape((63996)).tolist()
+                    test_datas.append(data_for_knn)
                     test_labels.append(i)
-                acc = knn.score(test_datas, test_labels)
-                print ('[class {}/{}] => acc: {:.5f}'.format(i, 50, acc))
+                if i % 10 == 0:
+                    knn.fit(datas, labels)#这个感觉好慢啊，每次都从新fit一遍
+                    acc = knn.score(test_datas, test_labels)
+                    print ('[class {}/{}] => acc: {:.5f}'.format(i, 50, acc))
                     
 
 
