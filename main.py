@@ -23,7 +23,7 @@ tf.app.flags.DEFINE_integer("protonet_selected", 8, "protonet select num")
 tf.app.flags.DEFINE_integer("protonet_shot", 5, "protonet shot")
 tf.app.flags.DEFINE_integer("protonet_query", 2, "protonet query")
 tf.app.flags.DEFINE_integer("protonet_classnum", 50, "protonet class num")
-tf.app.flags.DEFINE_integer("protonet_epoch", 50, "protonet train epoch")
+tf.app.flags.DEFINE_integer("protonet_epoch", 100, "protonet train epoch")
 
 tf.app.flags.DEFINE_boolean("use_finetune_1", False, "finetune 1")
 tf.app.flags.DEFINE_integer("finetune1_classnum", 50, "protonet class num")
@@ -308,12 +308,4 @@ with tf.Session() as sess:
                     acc2 = linearSVC_clf.score(test_datas, test_labels)
                     print ('   SVM:     [class {}/{}] => acc: {:.5f}'.format(i, 50, acc1))
                     print ('linear_SVM: [class {}/{}] => acc: {:.5f}'.format(i, 50, acc2))
-
-
-                            cnt = 0
-                            for index, p in enumerate(predict):
-                                if abs(p - xgb_test_label[index]) < 0.1:
-                                    cnt = cnt + 1
-
-                            print('eta: {}, max_depth: {}, num_round: {}, acc: {}'.format(eta * 0.01, max_depth, num_round, cnt / 100.0))
-            '''
+            
