@@ -29,3 +29,18 @@ def loadTrainSet(train_dict):
             img_bgr = (img_bgr - VGG_MEAN).reshape((1, 227, 227, 3))
             trainset[i][j] = img_bgr
     return trainset
+
+def loadTestSet():
+    testset = {}
+    cnt = 0
+    VGG_MEAN = np.tile(np.array([103.939, 116.779, 123.68]), (227, 227, 1))
+    for fn in os.listdir("./testing"):
+        cnt = cnt + 1
+        img_raw = cv2.imread("./testing/" + fn)
+        img_bgr = cv2.resize(img_raw, (227, 227), interpolation=cv2.INTER_CUBIC)
+        img_bgr = (img_bgr - VGG_MEAN).reshape((1, 227, 227, 3))
+        testset[cnt] = img_bgr
+
+        if cnt % 100 == 0:
+            print ('reading {} of {}'.format(cnt, 2500))
+    return testset

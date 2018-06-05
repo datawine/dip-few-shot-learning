@@ -1,3 +1,5 @@
+# -*- coding:utf-8 -*-
+import xgboost as xgb
 import tensorflow as tf
 import numpy as np
 from alexnet import AlexNet
@@ -6,7 +8,8 @@ import time
 import cv2
 from utils import *
 import finetune_utils
-from sklearn import neighbors  
+from sklearn import neighbors
+import sys
 
 tf.app.flags.DEFINE_string("alexnet_classes", "./imagenet-classes.txt", "label dir")
 tf.app.flags.DEFINE_boolean("use_alexnet", True, "use alexnet")
@@ -14,12 +17,12 @@ tf.app.flags.DEFINE_float("keep_prob", 0.5, "drop out rate")
 
 tf.app.flags.DEFINE_boolean("use_raw_alexnet", False, "use prototype network")
 
-tf.app.flags.DEFINE_boolean("use_protonet", False, "use prototype network")
+tf.app.flags.DEFINE_boolean("use_protonet", True, "use prototype network")
 tf.app.flags.DEFINE_integer("protonet_selected", 8, "protonet select num")
 tf.app.flags.DEFINE_integer("protonet_shot", 5, "protonet shot")
-tf.app.flags.DEFINE_integer("protonet_query", 1, "protonet query")
+tf.app.flags.DEFINE_integer("protonet_query", 2, "protonet query")
 tf.app.flags.DEFINE_integer("protonet_classnum", 50, "protonet class num")
-tf.app.flags.DEFINE_integer("protonet_epoch", 200, "protonet train epoch")
+tf.app.flags.DEFINE_integer("protonet_epoch", 50, "protonet train epoch")
 
 tf.app.flags.DEFINE_boolean("use_finetune_1", False, "finetune 1")
 tf.app.flags.DEFINE_integer("finetune1_classnum", 50, "protonet class num")
@@ -30,7 +33,16 @@ tf.app.flags.DEFINE_integer("finetune1_epoch", 150, "protonet train epoch")
 tf.app.flags.DEFINE_integer("train_class_num", 50, "train class num")
 tf.app.flags.DEFINE_integer("train_pic_num", 10, "train pic num")
 
+tf.app.flags.DEFINE_boolean("use_xgboost", True, "use xgboost")
+
 FLAGS = tf.app.flags.FLAGS
+
+xgb_param = {}
+xgb_param['objective'] = 'multi:softmax'
+#xgb_param['eta'] = 0.2
+#xgb_param['max_depth'] = 10
+xgb_param['silent'] = 1
+xgb_param['num_class'] = 50
 
 def genInput(filename):
     '''
@@ -61,6 +73,13 @@ def readAlexnetLabel():
         return f.readlines()    
 alexnet_label = readAlexnetLabel()
 
+def readFewshotLabel():
+    fewshot_label = []
+    for dirs in os.listdir("./training"):
+        fewshot_label.append(dirs.split(".")[1])
+    return fewshot_label
+fewshot_label = readFewshotLabel()
+
 def addXWB(x, num_in, num_out, name):
     with tf.variable_scope(name) as scope:
         weights = tf.get_variable('weights', shape=[num_in, num_out],
@@ -84,71 +103,86 @@ with tf.Session() as sess:
             pred = sess.run([pred], feed_dict={input_layer: input_img})[0]
             print (pred)
         elif FLAGS.use_protonet == True:
-            support_dim = FLAGS.protonet_classnum * FLAGS.protonet_shot
-            query_dim = FLAGS.protonet_classnum * FLAGS.protonet_query
+            input_support = tf.placeholder(tf.float32, [None, None, 227, 227, 3])
+            input_query = tf.placeholder(tf.float32, [None, None, 227, 227, 3])
+            support_shape = tf.shape(input_support)
+            query_shape = tf.shape(input_query)
+            num_classes, num_support = support_shape[0], support_shape[1]
+            num_classes2, num_queries = query_shape[0], query_shape[1]
+            y = tf.placeholder(tf.int64, [None, None])
+            y_one_hot = tf.one_hot(y, depth=num_classes)
 
-            input_support = tf.placeholder(tf.float32, [None, 227, 227, 3])
-            input_query = tf.placeholder(tf.float32, [None, 227, 227, 3])
-            y = tf.placeholder(tf.int64, [FLAGS.protonet_classnum, FLAGS.protonet_query])
-            y_one_hot = tf.one_hot(y, depth = FLAGS.protonet_classnum)
+            emb_input = tf.concat([tf.reshape(input_support, [num_classes * num_support, 227, 227, 3]), \
+                            tf.reshape(input_query, [num_classes2 * num_queries, 227, 227, 3])], 0)            
 
-            input_total = tf.concat([input_support, input_query], 0)
+            model = AlexNet(emb_input, 1, 1000, [])
+            fc9 = addXWB(model.fc8, 1000, 512, "fc9")
+            emb_dim = tf.shape(fc9)[-1]
 
-#            input_total = tf.placeholder(tf.float32, [None, 227, 227, 3])
-            model = AlexNet(input_total, FLAGS.keep_prob, 1000, [])
+            emb_support = tf.slice(fc9, [0, 0], [num_classes * num_support, emb_dim])
+            emb_query = tf.slice(fc9, [num_classes * num_support, 0], [num_classes2 * num_queries, emb_dim])
 
-            fc9 = addXWB(model.fc8, 1000, 256, "fc9")
-            fc10 = addXWB(fc9, 256, 50, "fc10")
-
-            emb_support = tf.slice(fc10, [0, 0], [support_dim, 50])
-            emb_query = tf.slice(fc10, [support_dim, 0], [query_dim, 50])
+            emb_support = tf.reduce_mean(tf.reshape(emb_support, [num_classes, num_support, emb_dim]), axis=1)
 
             def euclidean_distance(a, b):
+                # a.shape = N x D
+                # b.shape = M x D
                 N, D = tf.shape(a)[0], tf.shape(a)[1]
                 M = tf.shape(b)[0]
                 a = tf.tile(tf.expand_dims(a, axis=1), (1, M, 1))
                 b = tf.tile(tf.expand_dims(b, axis=0), (N, 1, 1))
-                return tf.reduce_mean(tf.square(a - b), axis=1)
+                return tf.reduce_mean(tf.square(a - b), axis=2)
+
             dists = euclidean_distance(emb_query, emb_support)
-
-            log_p_y = tf.reshape(tf.nn.log_softmax(-dists), [FLAGS.protonet_classnum, FLAGS.protonet_query, -1])
-
-            print (log_p_y.shape)
-
+            log_p_y = tf.reshape(tf.nn.log_softmax(-dists), [num_classes2, num_queries, -1])
             ce_loss = -tf.reduce_mean(tf.reshape(tf.reduce_sum(tf.multiply(y_one_hot, log_p_y), axis=-1), [-1]))
-
             acc = tf.reduce_mean(tf.to_float(tf.equal(tf.argmax(log_p_y, axis=-1), y)))
-            train_op = tf.train.AdamOptimizer(0.01).minimize(ce_loss)
+
+            pred = tf.argmax(log_p_y, axis=-1)
+
+            train_op = tf.train.AdamOptimizer().minimize(ce_loss)
 
             tf.global_variables_initializer().run()
             model.load_initial_weights(sess)
 
             train_dict = readTrainSet()
             train_set = loadTrainSet(train_dict)
-            print('??')
+            test_set = loadTestSet()
+
             ## train part
-            support = np.zeros([support_dim, 227, 227, 3])
-            query = np.zeros([query_dim, 227, 227, 3])
+            support = np.zeros([FLAGS.protonet_classnum, FLAGS.protonet_shot, 227, 227, 3])
+            query = np.zeros([FLAGS.protonet_classnum, FLAGS.protonet_query, 227, 227, 3])
             labels = np.zeros([FLAGS.protonet_classnum, FLAGS.protonet_query])
             for epi in range(FLAGS.protonet_epoch):
-                epi_classes = np.random.permutation(50)[:FLAGS.protonet_classnum]
-                for i, epi_cls in enumerate(epi_classes):
+                for epi_cls in range(FLAGS.protonet_classnum):
                     selected = np.random.permutation(FLAGS.protonet_selected)[: FLAGS.protonet_shot + FLAGS.protonet_query]
-
                     for j, sel in enumerate(selected):
                         if j < FLAGS.protonet_shot:
-                            support[i * FLAGS.protonet_shot + j] = train_set[epi_cls + 1][sel + 1]
+                            support[epi_cls][j] = train_set[epi_cls + 1][sel + 1]
                         else:
-                            query[i * FLAGS.protonet_query + j - FLAGS.protonet_shot] = train_set[epi_cls + 1][sel + 1]
-                            labels[i][j - FLAGS.protonet_shot] = epi_cls + 1
-                
-                _, loss, ac = sess.run([train_op, ce_loss, acc], feed_dict={input_support: support, input_query: query, y: labels})
+                            query[epi_cls][j - FLAGS.protonet_shot] = train_set[epi_cls + 1][sel + 1]
+                labels = np.tile(np.arange(FLAGS.protonet_classnum)[:, np.newaxis], (1, FLAGS.protonet_query)).astype(np.uint8)
+                _, loss, ac, p = sess.run([train_op, ce_loss, acc, pred], feed_dict={input_support: support, input_query: query, y: labels})
 
-                if True:
-#                if epi + 1 % 5 == 0:
+                if (epi + 1) % 5 == 0:
                     print ('[episode {}/{}] => loss: {:.5f}, acc: {:.5f}'.format(epi + 1, FLAGS.protonet_epoch, loss, ac))
-
             ## test part
+            support = np.zeros([FLAGS.protonet_classnum, 10, 227, 227, 3])
+            query = np.zeros([2500, 1, 227, 227, 3])
+            for epi_cls in range(FLAGS.protonet_classnum):
+                for j in range(10):
+                    support[epi_cls][j] = train_set[epi_cls + 1][sel + 1]
+            
+            for i in range(2500):
+                query[i][0] = test_set[i + 1]
+            p = sess.run([pred], feed_dict={input_support: support, input_query: query})[0]
+
+            VGG_MEAN = np.tile(np.array([103.939, 116.779, 123.68]), (227, 227, 1))
+            for i in range(2500):
+                print (fewshot_label[int(p[i])]) 
+                cv2.imshow("img", query[i][0] + VGG_MEAN)
+                cv2.waitKey(0)
+
         elif FLAGS.use_finetune_1 == True:
             input_x = tf.placeholder(tf.float32, [None, 227, 227, 3])
             label = tf.placeholder(tf.int32, [None])
@@ -186,9 +220,9 @@ with tf.Session() as sess:
         else:
             input_x = tf.placeholder(tf.float32, [None, 227, 227, 3])
             label = tf.placeholder(tf.int32, [None])
-            knn = neighbors.KNeighborsClassifier(n_neighbors=8,weights='distance')
+            knn = neighbors.KNeighborsClassifier(n_neighbors=10,weights='distance')
 
-            model = AlexNet(input_x, FLAGS.keep_prob, 1000, [])
+            model = AlexNet(input_x, 1, 1000, [])
             data = model.fc7
             tf.global_variables_initializer().run()
             model.load_initial_weights(sess)
@@ -209,18 +243,52 @@ with tf.Session() as sess:
                     y[0] = i
                     data_fc7 = sess.run([data], feed_dict={input_x: x, label: y})
                     datas.append(data_fc7[0][0])
-                    labels.append(i)
+                    labels.append(i - 1)
 
-                knn.fit(datas, labels)#这个感觉好慢啊，每次都从新fit一遍
+#                knn.fit(datas, labels)#这个感觉好慢啊，每次都从新fit一遍
                 
                 for j in range(FLAGS.train_pic_num-1, FLAGS.train_pic_num+1):
                     x = train_set[i][j]
                     y[0] = i
                     data_fc7 = sess.run([data], feed_dict={input_x: x, label: y})
                     test_datas.append(data_fc7[0][0])
-                    test_labels.append(i)
-                acc = knn.score(test_datas, test_labels)
-                print ('[class {}/{}] => acc: {:.5f}'.format(i, 50, acc))
-                    
+                    test_labels.append(i - 1)
+#                acc = knn.score(test_datas, test_labels)
+#                print ('[class {}/{}] => acc: {:.5f}'.format(i, 50, acc))
 
+            knn.fit(datas, labels)#这个感觉好慢啊，每次都从新fit一遍
+            acc = knn.score(test_datas, test_labels)
+            print ('[class {}/{}] => acc: {:.5f}'.format(i, 50, acc))
+            
+            '''
+            if FLAGS.use_xgboost == True:
+                xgb_train_data = np.zeros((50 * 8, 4096))
+                xgb_train_label = np.zeros((50 * 8,))
+                xgb_test_data = np.zeros((50 * 2, 4096))
+                xgb_test_label = np.zeros((50 * 2,))
+                for index, _data in enumerate(datas):
+                    xgb_train_data[index] = _data
+                    xgb_train_label[index] = labels[index]
+                for index, _data in enumerate(test_datas):
+                    xgb_test_data[index] = _data
+                    xgb_test_label[index] = test_labels[index]
+                
+                for eta in range(10, 200):
+                    for max_depth in range(5, 15):
+                        for num_round in range(4, 20):
+                            xgb_param['eta'] = eta * 0.01
+                            xgb_param['max_depth'] = max_depth
 
+                            xgb_train = xgb.DMatrix(xgb_train_data, label=xgb_train_label)
+                            bst = xgb.train(xgb_param, xgb_train, num_round)
+
+                            xgb_test = xgb.DMatrix(xgb_test_data)
+                            predict = bst.predict(xgb_test)
+
+                            cnt = 0
+                            for index, p in enumerate(predict):
+                                if abs(p - xgb_test_label[index]) < 0.1:
+                                    cnt = cnt + 1
+
+                            print('eta: {}, max_depth: {}, num_round: {}, acc: {}'.format(eta * 0.01, max_depth, num_round, cnt / 100.0))
+            '''
