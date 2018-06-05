@@ -34,6 +34,17 @@ def genTestSet(train_set):
 
     return x, y
 
-def getFc7Array():
+def getFc7Array(reorder = True):
     fc7 = np.load('./fc7.npy')
-    return np.array(fc7)
+    if reorder:
+        labels = np.load('./label.npy')
+        reorder_fc7 = np.zeros([len(fc7), len(fc7[0])])
+        place = 0
+        for i in range(0, 1000):
+            for j in range(0, len(fc7)):
+                if labels[j] == i:
+                    reorder_fc7[place] = fc7[j]
+                    place += 1
+        return np.array(reorder_fc7)
+    else:
+        return np.array(fc7)

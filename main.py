@@ -7,6 +7,7 @@ import cv2
 from utils import *
 import finetune_utils
 from sklearn import neighbors  
+from sklearn.svm import SVC, LinearSVC
 
 tf.app.flags.DEFINE_string("alexnet_classes", "./imagenet-classes.txt", "label dir")
 tf.app.flags.DEFINE_boolean("use_alexnet", True, "use alexnet")
@@ -27,7 +28,7 @@ tf.app.flags.DEFINE_integer("finetune1_itemnum", 10, "protonet class num")
 tf.app.flags.DEFINE_integer("finetune1_epochnum", 100, "protonet class num")
 tf.app.flags.DEFINE_integer("finetune1_epoch", 150, "protonet train epoch")
 
-tf.app.flags.DEFINE_boolean("use_finetune_dot", True, "finetune dot")
+tf.app.flags.DEFINE_boolean("use_finetune_dot", False, "finetune dot")
 tf.app.flags.DEFINE_integer("train_class_num", 50, "train class num")
 tf.app.flags.DEFINE_integer("train_pic_num", 10, "train pic num")
 
@@ -187,7 +188,7 @@ with tf.Session() as sess:
         elif FLAGS.use_finetune_dot == True:
             input_x = tf.placeholder(tf.float32, [None, 227, 227, 3])
             label = tf.placeholder(tf.int32, [None])
-            knn = neighbors.KNeighborsClassifier(n_neighbors=20,weights='distance')
+            knn = neighbors.KNeighborsClassifier(n_neighbors=8,weights='uniform')
 
             model = AlexNet(input_x, 1.0, 1000, [])
             data = model.fc7
@@ -210,7 +211,7 @@ with tf.Session() as sess:
                     x = train_set[i][j]
                     y[0] = i
                     data_fc7 = sess.run([data], feed_dict={input_x: x, label: y})
-                    data_vector = np.array(data_fc7).reshape(((4096,1)))
+                    data_vector = np.array(data_fc7).reshape((4096,1)).tolist()
                     data_for_knn = (fc7_vector.dot(data_vector)).reshape((63996)).tolist()
                     datas.append(data_for_knn)
                     labels.append(i)
@@ -219,7 +220,7 @@ with tf.Session() as sess:
                     x = train_set[i][j]
                     y[0] = i
                     data_fc7 = sess.run([data], feed_dict={input_x: x, label: y})
-                    data_vector = np.array(data_fc7).reshape(((4096,1)))
+                    data_vector = np.array(data_fc7).reshape((4096,1)).tolist()
                     data_for_knn = (fc7_vector.dot(data_vector)).reshape((63996)).tolist()
                     test_datas.append(data_for_knn)
                     test_labels.append(i)
@@ -227,6 +228,52 @@ with tf.Session() as sess:
                     knn.fit(datas, labels)#这个感觉好慢啊，每次都从新fit一遍
                     acc = knn.score(test_datas, test_labels)
                     print ('[class {}/{}] => acc: {:.5f}'.format(i, 50, acc))
+        else: #svm
+            input_x = tf.placeholder(tf.float32, [None, 227, 227, 3])
+            label = tf.placeholder(tf.int32, [None])
+            clf = SVC(C=10,cache_size=500,tol=1e-4,kernel='linear')
+            linearSVC_clf = LinearSVC(C=10)
+
+            model = AlexNet(input_x, 1.0, 1000, [])
+            data = model.fc7
+            tf.global_variables_initializer().run()
+            model.load_initial_weights(sess)
+            fc7_vector = finetune_utils.getFc7Array()
+
+            datas = []
+            labels = []
+            test_datas = []
+            test_labels = []
+            x = np.zeros([1, 227, 227, 3])
+            y = np.zeros([1])
                     
+            train_dict = readTrainSet()
+            train_set = loadTrainSet(train_dict)
+            for i in range(1, FLAGS.train_class_num+1):
+                for j in range(1, FLAGS.train_pic_num-1):
+                    x = train_set[i][j]
+                    y[0] = i
+                    data_fc7 = sess.run([data], feed_dict={input_x: x, label: y})
+                    data_vector = np.array(data_fc7).reshape((4096)).tolist()
+                    #data_for_knn = (fc7_vector.dot(data_vector)).reshape((63996)).tolist()
+                    datas.append(data_vector)
+                    labels.append(i)
+                
+                for j in range(FLAGS.train_pic_num-1, FLAGS.train_pic_num+1):
+                    x = train_set[i][j]
+                    y[0] = i
+                    data_fc7 = sess.run([data], feed_dict={input_x: x, label: y})
+                    data_vector = np.array(data_fc7).reshape((4096)).tolist()
+                    #data_for_knn = (fc7_vector.dot(data_vector)).reshape((63996)).tolist()
+                    test_datas.append(data_vector)
+                    test_labels.append(i)
+                if i % 10 == 0:
+                    clf.fit(datas, labels)
+                    linearSVC_clf.fit(datas, labels)
+                    acc1 = clf.score(test_datas, test_labels)
+                    acc2 = linearSVC_clf.score(test_datas, test_labels)
+                    print ('   SVM:     [class {}/{}] => acc: {:.5f}'.format(i, 50, acc1))
+                    print ('linear_SVM: [class {}/{}] => acc: {:.5f}'.format(i, 50, acc2))
+
 
 
