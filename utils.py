@@ -44,3 +44,29 @@ def loadTestSet():
         if cnt % 100 == 0:
             print ('reading {} of {}'.format(cnt, 2500))
     return testset
+
+def loadTestNp():
+    testset = np.zeros([2500, 1, 227, 227, 3])
+    cnt = 0
+    VGG_MEAN = np.tile(np.array([103.939, 116.779, 123.68]), (227, 227, 1))
+    for fn in os.listdir("./testing"):
+        cnt = cnt + 1
+        index = int(fn.split("_")[1].split(".")[0]) - 1
+        img_raw = cv2.imread("./testing/" + fn)
+        img_bgr = cv2.resize(img_raw, (227, 227), interpolation=cv2.INTER_CUBIC)
+        img_bgr = (img_bgr).reshape((227, 227, 3))
+        testset[index][0] = img_bgr - VGG_MEAN
+
+        if cnt % 100 == 0:
+            print ('reading {} of {}'.format(cnt, 2500))
+    return testset
+
+def loadCorrectLabel():
+    ans = {}
+    with open("./data/out.txt", "r") as f:
+        lines = f.readlines()
+        for line in lines:
+            index = int(line.split(" ")[0])
+            label = int(line.split(" ")[1])
+            ans[index] = label
+    return ans

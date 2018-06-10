@@ -16,14 +16,12 @@ tf.app.flags.DEFINE_string("alexnet_classes", "./imagenet-classes.txt", "label d
 tf.app.flags.DEFINE_boolean("use_alexnet", True, "use alexnet")
 tf.app.flags.DEFINE_float("keep_prob", 0.5, "drop out rate")
 
-tf.app.flags.DEFINE_boolean("use_raw_alexnet", False, "use prototype network")
-
 tf.app.flags.DEFINE_boolean("use_protonet", True, "use prototype network")
-tf.app.flags.DEFINE_integer("protonet_selected", 8, "protonet select num")
-tf.app.flags.DEFINE_integer("protonet_shot", 5, "protonet shot")
-tf.app.flags.DEFINE_integer("protonet_query", 2, "protonet query")
+tf.app.flags.DEFINE_integer("protonet_selected", 10, "protonet select num")
+tf.app.flags.DEFINE_integer("protonet_shot", 7, "protonet shot")
+tf.app.flags.DEFINE_integer("protonet_query", 3, "protonet query")
 tf.app.flags.DEFINE_integer("protonet_classnum", 50, "protonet class num")
-tf.app.flags.DEFINE_integer("protonet_epoch", 100, "protonet train epoch")
+tf.app.flags.DEFINE_integer("protonet_epoch", 30, "protonet train epoch")
 
 tf.app.flags.DEFINE_boolean("use_finetune_1", False, "finetune 1")
 tf.app.flags.DEFINE_integer("finetune1_classnum", 50, "protonet class num")
@@ -46,29 +44,7 @@ xgb_param['objective'] = 'multi:softmax'
 xgb_param['silent'] = 1
 xgb_param['num_class'] = 50
 
-def genInput(filename):
-    '''
-    VGG_MEAN = tf.constant([123.68, 116.779, 103.939], dtype=tf.float32)
- 	# load and preprocess the image
-    img_string = tf.read_file(filename)
-    img_decoded = tf.image.decode_png(img_string, channels=3)
-    img_resized = tf.image.resize_images(img_decoded, [227, 227])
-    img_centered = tf.subtract(img_resized, VGG_MEAN)
-
-    # RGB -> BGR
-    img_bgr = img_centered[:, :, ::-1]
-
-    img_bgr = tf.reshape(img_bgr, [1, 227, 227, 3])
-    '''
-
-    VGG_MEAN = np.tile(np.array([103.939, 116.779, 123.68]), (227, 227, 1))
-    img_raw = cv2.imread("./training/009.bear/009_0001.jpg")
-
-    img_bgr = cv2.resize(img_raw, (227, 227), interpolation=cv2.INTER_CUBIC)
-    
-    img_bgr = (img_bgr - VGG_MEAN).reshape((1, 227, 227, 3))
-
-    return img_bgr
+start_time = time.time()
 
 def readAlexnetLabel():
     with open(FLAGS.alexnet_classes, "r") as f:
@@ -82,7 +58,6 @@ def readFewshotLabel():
             fewshot_label[int(dirs.split(".")[0])] =  dirs.split(".")[1]
     return fewshot_label
 fewshot_label = readFewshotLabel()
-print fewshot_label
 
 def addXWB(x, num_in, num_out, name):
     with tf.variable_scope(name) as scope:
@@ -94,19 +69,7 @@ def addXWB(x, num_in, num_out, name):
 
 with tf.Session() as sess:
     if FLAGS.use_alexnet:
-        if FLAGS.use_raw_alexnet == True:
-            input_layer = tf.placeholder(tf.float32, [None, 227, 227, 3])
-            model = AlexNet(input_layer, FLAGS.keep_prob, 1000, [])
-
-            pred = tf.cast(tf.argmax(model.fc8, 1), tf.int32)
-            tf.global_variables_initializer().run()
-
-            model.load_initial_weights(sess)
-
-            input_img = genInput("./training/009.bear/009_0001.jpg")
-            pred = sess.run([pred], feed_dict={input_layer: input_img})[0]
-            print (pred)
-        elif FLAGS.use_protonet == True:
+        if FLAGS.use_protonet == True:
             input_support = tf.placeholder(tf.float32, [None, None, 227, 227, 3])
             input_query = tf.placeholder(tf.float32, [None, None, 227, 227, 3])
             support_shape = tf.shape(input_support)
@@ -121,6 +84,7 @@ with tf.Session() as sess:
 
             model = AlexNet(emb_input, 1, 1000, [])
             fc9 = addXWB(model.fc8, 1000, 512, "fc9")
+#            fc10 = addXWB(fc9, 512, 512, "fc10")
             emb_dim = tf.shape(fc9)[-1]
 
             emb_support = tf.slice(fc9, [0, 0], [num_classes * num_support, emb_dim])
@@ -151,7 +115,8 @@ with tf.Session() as sess:
 
             train_dict = readTrainSet()
             train_set = loadTrainSet(train_dict)
-            test_set = loadTestSet()
+            test_set = loadTestNp()
+            test_ans = loadCorrectLabel()
 
             ## train part
             support = np.zeros([FLAGS.protonet_classnum, FLAGS.protonet_shot, 227, 227, 3])
@@ -168,24 +133,24 @@ with tf.Session() as sess:
                 labels = np.tile(np.arange(FLAGS.protonet_classnum)[:, np.newaxis], (1, FLAGS.protonet_query)).astype(np.uint8)
                 _, loss, ac, p = sess.run([train_op, ce_loss, acc, pred], feed_dict={input_support: support, input_query: query, y: labels})
 
-                if (epi + 1) % 5 == 0:
+                if True:
+#                if (epi + 1) % 5 == 0:
                     print ('[episode {}/{}] => loss: {:.5f}, acc: {:.5f}'.format(epi + 1, FLAGS.protonet_epoch, loss, ac))
             ## test part
             support = np.zeros([FLAGS.protonet_classnum, 10, 227, 227, 3])
-            query = np.zeros([2500, 1, 227, 227, 3])
             for epi_cls in range(FLAGS.protonet_classnum):
                 for j in range(10):
-                    support[epi_cls][j] = train_set[epi_cls + 1][sel + 1]
+                    support[epi_cls][j] = train_set[epi_cls + 1][j + 1]
             
-            VGG_MEAN = np.tile(np.array([103.939, 116.779, 123.68]), (227, 227, 1))
-            for i in range(2500):
-                query[i][0] = (test_set[i + 1] - VGG_MEAN).reshape(227, 227, 3)
-            p = sess.run([pred], feed_dict={input_support: support, input_query: query})[0]
+            p = sess.run([pred], feed_dict={input_support: support, input_query: test_set})[0]
 
+            cnt = 0
             for i in range(2500):
-                print (fewshot_label[int(p[i]) + 1]) 
-                cv2.imshow("img", test_set[i + 1])
-                cv2.waitKey(0)
+                if int(p[i]) + 1 == test_ans[i + 1]:
+                    cnt = cnt + 1
+            print (cnt / 2500.0)
+
+            print ("total time: " + str(time.time() - start_time))
 
         elif FLAGS.use_finetune_1 == True:
             input_x = tf.placeholder(tf.float32, [None, 227, 227, 3])
