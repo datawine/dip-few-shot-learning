@@ -39,7 +39,8 @@ def loadTestSet():
         img_raw = cv2.imread("./testing/" + fn)
         img_bgr = cv2.resize(img_raw, (227, 227), interpolation=cv2.INTER_CUBIC)
         img_bgr = (img_bgr).reshape((227, 227, 3))
-        testset[cnt] = img_bgr
+        number = fn.split('.')[0].split('_')[1]
+        testset[int(number)] = img_bgr
 
         if cnt % 100 == 0:
             print ('reading {} of {}'.format(cnt, 2500))

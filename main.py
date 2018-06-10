@@ -18,7 +18,7 @@ tf.app.flags.DEFINE_float("keep_prob", 0.5, "drop out rate")
 
 tf.app.flags.DEFINE_boolean("use_raw_alexnet", False, "use prototype network")
 
-tf.app.flags.DEFINE_boolean("use_protonet", True, "use prototype network")
+tf.app.flags.DEFINE_boolean("use_protonet", False, "use prototype network")
 tf.app.flags.DEFINE_integer("protonet_selected", 8, "protonet select num")
 tf.app.flags.DEFINE_integer("protonet_shot", 5, "protonet shot")
 tf.app.flags.DEFINE_integer("protonet_query", 2, "protonet query")
@@ -82,7 +82,7 @@ def readFewshotLabel():
             fewshot_label[int(dirs.split(".")[0])] =  dirs.split(".")[1]
     return fewshot_label
 fewshot_label = readFewshotLabel()
-print fewshot_label
+print (fewshot_label)
 
 def addXWB(x, num_in, num_out, name):
     with tf.variable_scope(name) as scope:
@@ -283,22 +283,23 @@ with tf.Session() as sess:
             x = np.zeros([1, 227, 227, 3])
             y = np.zeros([1])
                     
+            test_dict = loadTestSet()
             train_dict = readTrainSet()
             train_set = loadTrainSet(train_dict)
             for i in range(1, FLAGS.train_class_num+1):
                 for j in range(1, FLAGS.train_pic_num-1):
-                    x = train_set[i][j]
+                    x[0] = train_set[i][j]
                     y[0] = i
-                    data_fc7 = sess.run([data], feed_dict={input_x: x, label: y})
+                    data_fc7 = sess.run([data], feed_dict={input_x: x})
                     data_vector = np.array(data_fc7).reshape((4096)).tolist()
                     #data_for_knn = (fc7_vector.dot(data_vector)).reshape((63996)).tolist()
                     datas.append(data_vector)
                     labels.append(i)
                 
                 for j in range(FLAGS.train_pic_num-1, FLAGS.train_pic_num+1):
-                    x = train_set[i][j]
+                    x[0] = train_set[i][j]
                     y[0] = i
-                    data_fc7 = sess.run([data], feed_dict={input_x: x, label: y})
+                    data_fc7 = sess.run([data], feed_dict={input_x: x})
                     data_vector = np.array(data_fc7).reshape((4096)).tolist()
                     #data_for_knn = (fc7_vector.dot(data_vector)).reshape((63996)).tolist()
                     test_datas.append(data_vector)
@@ -310,4 +311,22 @@ with tf.Session() as sess:
                     acc2 = linearSVC_clf.score(test_datas, test_labels)
                     print ('   SVM:     [class {}/{}] => acc: {:.5f}'.format(i, 50, acc1))
                     print ('linear_SVM: [class {}/{}] => acc: {:.5f}'.format(i, 50, acc2))
+            
+            #test_dict = loadTestSet()
+            test_fc7 = []
+            x = np.zeros([len(test_dict), 227, 227, 3])
+            for i in range(1, len(test_dict)+1):
+                x[i-1] = test_dict[i]
+            data_fc7 = sess.run([data], feed_dict={input_x: x})
+            data_vector = np.array(data_fc7).reshape((len(test_dict), 4096)).tolist()
+            #test_fc7.append(data_vector)
+            test_labels = finetune_utils.getTestLabel()
+            test_ans = []
+            for i in test_labels:
+                test_ans.append(int(i))
+            acc1 = clf.score(data_vector, test_ans)
+            acc2 = linearSVC_clf.score(data_vector, test_ans)
+            print ('   SVM:     test acc: {:.5f}'.format(acc1))
+            print ('linear_SVM: test acc: {:.5f}'.format(acc2))
+                
             

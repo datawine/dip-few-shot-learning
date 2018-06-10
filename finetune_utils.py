@@ -48,3 +48,17 @@ def getFc7Array(reorder = True):
         return np.array(reorder_fc7)
     else:
         return np.array(fc7)
+
+def getTestLabel():
+    f = open('./out.txt')
+    data = f.read().split('\n')
+    ans = []
+    dicts = {}
+    for i in data:
+        array = i.split(' ')
+        if len(array) != 2:
+            continue
+        dicts[array[0]] = array[1]
+    for i in range(1, len(dicts)+1):
+        ans.append(dicts[str(i)])
+    return ans
