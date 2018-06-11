@@ -39,18 +39,7 @@ tf.app.flags.DEFINE_boolean("use_finetune_dot", False, "finetune dot")
 tf.app.flags.DEFINE_integer("train_class_num", 50, "train class num")
 tf.app.flags.DEFINE_integer("train_pic_num", 10, "train pic num")
 
-<<<<<<< HEAD
-tf.app.flags.DEFINE_boolean("use_finetune_svm", True, "finetune dot")
-=======
-<<<<<<< HEAD
-tf.app.flags.DEFINE_boolean("use_finetune_svm", True, "finetune dot")
-tf.app.flags.DEFINE_boolean("use_xgboost", True, "use xgboost")
-=======
 tf.app.flags.DEFINE_boolean("use_finetune_svm", False, "finetune dot")
->>>>>>> d4ff065cc574f87deff591067d9226f3aa2cfaef
-
-tf.app.flags.DEFINE_boolean("use_xgboost", False, "use xgboost")
->>>>>>> 98a0521aefd073d2f94fc87b08674714fda47972
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -97,7 +86,6 @@ with tf.Session() as sess:
             train_dict = readTrainSet()
             train_set = loadTrainSet(train_dict)
             test_set = loadTestNp()
-            test_ans = loadCorrectLabel()
 
             train_epoch = np.zeros((50, 227, 227, 3))
             train_epoch_label = np.zeros((50,))
@@ -116,12 +104,6 @@ with tf.Session() as sess:
             print ("sessrun done")
 
             p = clf.predict(_fc)
-            print (p)
-            cnt = 0
-            for i in range(2500):
-                if int(p[i]) == test_ans[i + 1]:
-                    cnt = cnt + 1
-            print (cnt / 2500.0)
 
             np.save("./res/logitsic1.npy", p)
         elif FLAGS.use_protonet == True:
@@ -169,7 +151,6 @@ with tf.Session() as sess:
             train_dict = readTrainSet()
             train_set = loadTrainSet(train_dict)
             test_set = loadTestNp()
-            test_ans = loadCorrectLabel()
 
             ## train part
             support = np.zeros([FLAGS.protonet_classnum, FLAGS.protonet_shot, 227, 227, 3])
@@ -198,12 +179,6 @@ with tf.Session() as sess:
             p = sess.run([pred], feed_dict={input_support: support, input_query: test_set})[0]
 
             ans = np.zeros((2500,))
-            cnt = 0
-            for i in range(2500):
-                ans[i] = int(p[i]) + 1
-                if int(p[i]) + 1 == test_ans[i + 1]:
-                    cnt = cnt + 1
-            print (cnt / 2500.0)
 
             print ("total time: " + str(time.time() - start_time))
 
@@ -231,7 +206,6 @@ with tf.Session() as sess:
             train_dict = readTrainSet()
             train_set = loadTrainSet(train_dict)
             test_set = loadTestNp()
-            test_ans = loadCorrectLabel()
             test_set = np.reshape(test_set, (-1, 227, 227, 3))
 
             x = np.zeros((FLAGS.finetune1_classnum * FLAGS.finetune1_itemnum,  227, 227, 3))
@@ -252,13 +226,6 @@ with tf.Session() as sess:
                     print ('[episode {}/{}] => loss: {:.5f}, acc: {:.5f}'.format(epi + 1, FLAGS.finetune1_epoch, _loss, _acc))
                     
             p = sess.run([pred], feed_dict={input_x: test_set})[0]
-
-            cnt = 0
-            for i in range(2500):
-                if int(p[i]) + 1 == test_ans[i + 1]:
-                    cnt = cnt + 1
-                p[i] = p[i] + 1
-            print (cnt / 2500.0)
 
             print ("total time: " + str(time.time() - start_time))
             np.save("./res/logistic2.npy", p)
