@@ -71,3 +71,12 @@ def loadCorrectLabel():
             label = int(line.split(" ")[1])
             ans[index] = label
     return ans
+
+def vote(a,b,c):
+	if a == b:
+		return a
+	if b == c:
+		return b
+	if a == c:
+		return a
+	return a
