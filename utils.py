@@ -71,3 +71,6 @@ def loadCorrectLabel():
             label = int(line.split(" ")[1])
             ans[index] = label
     return ans
+
+def vote():
+    pass
