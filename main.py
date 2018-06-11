@@ -21,14 +21,14 @@ tf.app.flags.DEFINE_string("alexnet_classes", "./imagenet-classes.txt", "label d
 tf.app.flags.DEFINE_boolean("use_alexnet", True, "use alexnet")
 tf.app.flags.DEFINE_float("keep_prob", 0.5, "drop out rate")
 
-tf.app.flags.DEFINE_boolean("use_logistic", False, "use logistic regression")
+tf.app.flags.DEFINE_boolean("use_logistic", True, "use logistic regression")
 
 tf.app.flags.DEFINE_boolean("use_protonet", False, "use prototype network")
 tf.app.flags.DEFINE_integer("protonet_selected", 10, "protonet select num")
 tf.app.flags.DEFINE_integer("protonet_shot", 7, "protonet shot")
 tf.app.flags.DEFINE_integer("protonet_query", 3, "protonet query")
 tf.app.flags.DEFINE_integer("protonet_classnum", 50, "protonet class num")
-tf.app.flags.DEFINE_integer("protonet_epoch", 30, "protonet train epoch")
+tf.app.flags.DEFINE_integer("protonet_epoch", 25, "protonet train epoch")
 
 tf.app.flags.DEFINE_boolean("use_finetune_1", False, "finetune 1")
 tf.app.flags.DEFINE_integer("finetune1_classnum", 50, "finetune class num")
@@ -39,9 +39,18 @@ tf.app.flags.DEFINE_boolean("use_finetune_dot", False, "finetune dot")
 tf.app.flags.DEFINE_integer("train_class_num", 50, "train class num")
 tf.app.flags.DEFINE_integer("train_pic_num", 10, "train pic num")
 
+<<<<<<< HEAD
 tf.app.flags.DEFINE_boolean("use_finetune_svm", True, "finetune dot")
+=======
+<<<<<<< HEAD
+tf.app.flags.DEFINE_boolean("use_finetune_svm", True, "finetune dot")
+tf.app.flags.DEFINE_boolean("use_xgboost", True, "use xgboost")
+=======
+tf.app.flags.DEFINE_boolean("use_finetune_svm", False, "finetune dot")
+>>>>>>> d4ff065cc574f87deff591067d9226f3aa2cfaef
 
 tf.app.flags.DEFINE_boolean("use_xgboost", False, "use xgboost")
+>>>>>>> 98a0521aefd073d2f94fc87b08674714fda47972
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -97,16 +106,24 @@ with tf.Session() as sess:
                     train_epoch[c] = train_set[c + 1][i + 1]
                     train_epoch_label[c] = c + 1
                 _fc = sess.run([model.fc7], feed_dict={input_x: train_epoch})[0]
+                print ("sessrun done{}/{}".format(i + 1, 10))
                 clf.fit(_fc, train_epoch_label)
+                print ("fit done {}/{}".format(i + 1, 10))
 
             test_label = np.zeros((2500, ))
+
             _fc = sess.run([model.fc7], feed_dict={input_x: np.reshape(test_set, (-1, 227, 227, 3))})[0]
+            print ("sessrun done")
+
+            p = clf.predict(_fc)
+            print (p)
+            cnt = 0
             for i in range(2500):
-                test_label[i] = test_ans[i + 1]
+                if int(p[i]) == test_ans[i + 1]:
+                    cnt = cnt + 1
+            print (cnt / 2500.0)
 
-            acc = clf.score(_fc, test_label)
-
-            print (acc)
+            np.save("./res/logitsic1.npy", p)
         elif FLAGS.use_protonet == True:
             input_support = tf.placeholder(tf.float32, [None, None, 227, 227, 3])
             input_query = tf.placeholder(tf.float32, [None, None, 227, 227, 3])
@@ -240,9 +257,11 @@ with tf.Session() as sess:
             for i in range(2500):
                 if int(p[i]) + 1 == test_ans[i + 1]:
                     cnt = cnt + 1
+                p[i] = p[i] + 1
             print (cnt / 2500.0)
 
             print ("total time: " + str(time.time() - start_time))
+            np.save("./res/logistic2.npy", p)
 
         elif FLAGS.use_finetune_dot == True:
             input_x = tf.placeholder(tf.float32, [None, 227, 227, 3])
