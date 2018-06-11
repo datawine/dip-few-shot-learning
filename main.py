@@ -290,16 +290,13 @@ with tf.Session() as sess:
                     y[0] = i
                     data_fc7 = sess.run([data], feed_dict={input_x: x, label: y})
                     data_vector = np.array(data_fc7).reshape((4096)).tolist()
-                    #data_for_knn = (fc7_vector.dot(data_vector)).reshape((63996)).tolist()
                     datas.append(data_vector)
                     labels.append(i)
-
                 for j in range(FLAGS.train_pic_num-1, FLAGS.train_pic_num+1):
                     x[0] = train_set[i][j]
                     y[0] = i
                     data_fc7 = sess.run([data], feed_dict={input_x: x, label: y})
                     data_vector = np.array(data_fc7).reshape((4096)).tolist()
-                    #data_for_knn = (fc7_vector.dot(data_vector)).reshape((63996)).tolist()
                     test_datas.append(data_vector)
                     test_labels.append(i)
                 if i % 10 == 0:
@@ -307,19 +304,15 @@ with tf.Session() as sess:
                     acc = knn.score(test_datas, test_labels)
                     print ('[class {}/{}] => acc: {:.5f}'.format(i, 50, acc))
             test_dict = loadTestSet()
-            test_fc7 = []
             x = np.zeros([len(test_dict), 227, 227, 3])
             for i in range(1, len(test_dict)+1):
                 x[i-1] = test_dict[i]
             data_fc7 = sess.run([data], feed_dict={input_x: x})
             data_vector = np.array(data_fc7).reshape((len(test_dict), 4096)).tolist()
-            #test_fc7.append(data_vector)
-            test_labels = finetune_utils.getTestLabel()
-            test_ans = []
-            for i in test_labels:
-                test_ans.append(int(i))
-            acc1 = knn.score(data_vector, test_ans)
-            print ('   KNN:     test acc: {:.5f}'.format(acc1))
+            ans = []
+            ans = knn.predict(data_vector)
+            ans = np.array(ans)
+            np.save("./res/output_svm.npy",ans)
         elif FLAGS.use_finetune_svm: #svm
             input_x = tf.placeholder(tf.float32, [None, 227, 227, 3])
             label = tf.placeholder(tf.int32, [None])
@@ -344,50 +337,38 @@ with tf.Session() as sess:
             for _ in range(3):
                 print('miao???')
                 for i in range(1, FLAGS.train_class_num+1):
-                    for j in range(1, FLAGS.train_pic_num+1):
+                    for j in range(1, FLAGS.train_pic_num-1):
                         x[0] = train_set[i][j]
                         y[0] = i
                         data_fc7 = sess.run([data], feed_dict={input_x: x})
                         data_vector = np.array(data_fc7).reshape((4096)).tolist()
                         datas.append(data_vector)
                         labels.append(i)
-                    
-                    # for j in range(FLAGS.train_pic_num-1, FLAGS.train_pic_num+1):
-                    #     x[0] = train_set[i][j]
-                    #     y[0] = i
-                    #     data_fc7 = sess.run([data], feed_dict={input_x: x})
-                    #     data_vector = np.array(data_fc7).reshape((4096)).tolist()
-                    #     test_datas.append(data_vector)
-                    #     test_labels.append(i)
-                    # if i % 10 == 0:
-                    #     clf.fit(datas, labels)
-                    #     linearSVC_clf.fit(datas, labels)
-                    #     acc1 = clf.score(test_datas, test_labels)
-                    #     acc2 = linearSVC_clf.score(test_datas, test_labels)
-                    #     print ('   SVM:     [class {}/{}] => acc: {:.5f}'.format(i, 50, acc1))
-                    #     print ('linear_SVM: [class {}/{}] => acc: {:.5f}'.format(i, 50, acc2))
-
+                    for j in range(FLAGS.train_pic_num-1, FLAGS.train_pic_num+1):
+                        x[0] = train_set[i][j]
+                        y[0] = i
+                        data_fc7 = sess.run([data], feed_dict={input_x: x})
+                        data_vector = np.array(data_fc7).reshape((4096)).tolist()
+                        test_datas.append(data_vector)
+                        test_labels.append(i)
+                    if i % 10 == 0:
+                        clf.fit(datas, labels)
+                        linearSVC_clf.fit(datas, labels)
+                        acc1 = clf.score(test_datas, test_labels)
+                        acc2 = linearSVC_clf.score(test_datas, test_labels)
+                        print ('   SVM:     [class {}/{}] => acc: {:.5f}'.format(i, 50, acc1))
+                        print ('linear_SVM: [class {}/{}] => acc: {:.5f}'.format(i, 50, acc2))
             x = np.zeros([len(test_dict), 227, 227, 3])
             for i in range(1, len(test_dict)+1):
                 x[i-1] = test_dict[i]
             data_fc7 = sess.run([data], feed_dict={input_x: x})
             data_vector = np.array(data_fc7).reshape((len(test_dict), 4096)).tolist()
-            #test_fc7.append(data_vector)
-            test_labels = finetune_utils.getTestLabel()
-            test_ans = []
-            for i in test_labels:
-                test_ans.append(int(i))
-            clf.fit(datas, labels)
-            acc1 = clf.score(data_vector, test_ans)
-            #acc2 = linearSVC_clf.score(data_vector, test_ans)
-            print ('   SVM:     test acc: {:.5f}'.format(acc1))
-            #print ('linear_SVM: test acc: {:.5f}'.format(acc2))
+            linearSVC_clf.fit(datas, labels)
             ans = []
-            ans = clf.predict(data_vector)
+            ans = linearSVC_clf.predict(data_vector)
             ans = np.array(ans)
-            np.save("./res/output_svm0.npy",ans)
+            np.save("./res/output_svm.npy",ans)
 
-                
         else:#adaboost
             print("for adaboost")
             input_x = tf.placeholder(tf.float32, [None, 227, 227, 3])
@@ -430,6 +411,11 @@ with tf.Session() as sess:
                         adaboost.fit(datas, labels)
                         acc1 = adaboost.score(test_datas, test_labels)
                         print (' adaboost:  [class {}/{}] => acc: {:.5f}'.format(i, 50, acc1))
+            x = np.zeros([len(test_dict), 227, 227, 3])
+            for i in range(1, len(test_dict)+1):
+                x[i-1] = test_dict[i]
+            data_fc7 = sess.run([data], feed_dict={input_x: x})
+            data_vector = np.array(data_fc7).reshape((len(test_dict), 4096)).tolist()
             ans = []
             ans = adaboost.predict(data_vector)
             ans = np.array(ans)
