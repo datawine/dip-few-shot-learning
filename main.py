@@ -39,12 +39,8 @@ tf.app.flags.DEFINE_boolean("use_finetune_dot", False, "finetune dot")
 tf.app.flags.DEFINE_integer("train_class_num", 50, "train class num")
 tf.app.flags.DEFINE_integer("train_pic_num", 10, "train pic num")
 
-<<<<<<< HEAD
 tf.app.flags.DEFINE_boolean("use_finetune_svm", True, "finetune dot")
 tf.app.flags.DEFINE_boolean("use_xgboost", True, "use xgboost")
-=======
-tf.app.flags.DEFINE_boolean("use_xgboost", False, "use xgboost")
->>>>>>> f3230887cb4ffdefb05e2f89bafaa03675c1ea24
 
 FLAGS = tf.app.flags.FLAGS
 
