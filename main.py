@@ -39,7 +39,7 @@ tf.app.flags.DEFINE_boolean("use_finetune_dot", False, "finetune dot")
 tf.app.flags.DEFINE_integer("train_class_num", 50, "train class num")
 tf.app.flags.DEFINE_integer("train_pic_num", 10, "train pic num")
 
-tf.app.flags.DEFINE_boolean("use_finetune_svm", False, "finetune dot")
+tf.app.flags.DEFINE_boolean("use_finetune_svm", True, "finetune dot")
 
 tf.app.flags.DEFINE_boolean("use_xgboost", False, "use xgboost")
 
@@ -358,22 +358,22 @@ with tf.Session() as sess:
             test_ans = []
             for i in test_labels:
                 test_ans.append(int(i))
-            linearSVC_clf.fit(datas, labels)
-            #acc1 = clf.score(data_vector, test_ans)
-            acc2 = linearSVC_clf.score(data_vector, test_ans)
-            #print ('   SVM:     test acc: {:.5f}'.format(acc1))
-            print ('linear_SVM: test acc: {:.5f}'.format(acc2))
+            clf.fit(datas, labels)
+            acc1 = clf.score(data_vector, test_ans)
+            #acc2 = linearSVC_clf.score(data_vector, test_ans)
+            print ('   SVM:     test acc: {:.5f}'.format(acc1))
+            #print ('linear_SVM: test acc: {:.5f}'.format(acc2))
             ans = []
-            ans = linearSVC_clf.predict(data_vector)
+            ans = clf.predict(data_vector)
             ans = np.array(ans)
-            np.save("./res/output_svm.npy",ans)
+            np.save("./res/output_svm0.npy",ans)
 
                 
         else:#adaboost
             print("for adaboost")
             input_x = tf.placeholder(tf.float32, [None, 227, 227, 3])
             label = tf.placeholder(tf.int32, [None])
-            adaboost = AdaBoostClassifier(DecisionTreeClassifier(max_depth=17, min_samples_split=90, min_samples_leaf=35),
+            adaboost = AdaBoostClassifier(DecisionTreeClassifier(max_depth=15, min_samples_split=70, min_samples_leaf=25),
                          n_estimators=300, learning_rate=0.5)
 
             model = AlexNet(input_x, 1.0, 1000, [])
@@ -393,7 +393,7 @@ with tf.Session() as sess:
             train_set = loadTrainSet(train_dict)
             for _ in range(1):
                 for i in range(1, FLAGS.train_class_num+1):
-                    for j in range(1, FLAGS.train_pic_num+1):
+                    for j in range(1, FLAGS.train_pic_num-1):
                         x[0] = train_set[i][j]
                         y[0] = i
                         data_fc7 = sess.run([data], feed_dict={input_x: x})
@@ -411,18 +411,6 @@ with tf.Session() as sess:
                         adaboost.fit(datas, labels)
                         acc1 = adaboost.score(test_datas, test_labels)
                         print (' adaboost:  [class {}/{}] => acc: {:.5f}'.format(i, 50, acc1))
-            x = np.zeros([len(test_dict), 227, 227, 3])
-            for i in range(1, len(test_dict)+1):
-                x[i-1] = test_dict[i]
-            data_fc7 = sess.run([data], feed_dict={input_x: x})
-            data_vector = np.array(data_fc7).reshape((len(test_dict), 4096)).tolist()
-            #test_fc7.append(data_vector)
-            test_labels = finetune_utils.getTestLabel()
-            test_ans = []
-            for i in test_labels:
-                test_ans.append(int(i))
-            acc = adaboost.score(data_vector, test_ans)
-            print (' adaboost:  test acc: {:.5f}'.format(acc))
             ans = []
             ans = adaboost.predict(data_vector)
             ans = np.array(ans)
