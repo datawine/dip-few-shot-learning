@@ -38,7 +38,7 @@ def loadTestSet():
         cnt = cnt + 1
         img_raw = cv2.imread("./testing/" + fn)
         img_bgr = cv2.resize(img_raw, (227, 227), interpolation=cv2.INTER_CUBIC)
-        img_bgr = (img_bgr).reshape((227, 227, 3))
+        img_bgr = (img_bgr - VGG_MEAN).reshape((227, 227, 3))
         number = fn.split('.')[0].split('_')[1]
         testset[int(number)] = img_bgr
 

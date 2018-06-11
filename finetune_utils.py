@@ -34,9 +34,25 @@ def genTestSet(train_set):
 
     return x, y
 
-def getFc7Array(reorder = True):
+def getFc7Array(mean=False, normalization=False, reorder=False):
     fc7 = np.load('./fc7.npy')
-    if reorder:
+    if mean:
+        vector_num = {}
+        for i in range(0, 1000):
+            vector_num[i] = 0
+        labels = np.load('./label_correct.npy')
+        print(len(labels))
+        mean_fc7 = np.zeros((1000, len(fc7[0])))
+        for i in range(len(fc7)):
+            mean_fc7[int(labels[i])] += fc7[i]
+            vector_num[labels[i]] += 1
+        for i in range(0, 1000):
+            mean_fc7[i] /= vector_num[i]
+        if normalization:
+            for i in range(0, 1000):
+                mean_fc7[i] = normalize(mean_fc7[i])
+        return mean_fc7
+    elif reorder:
         labels = np.load('./label.npy')
         reorder_fc7 = np.zeros([len(fc7), len(fc7[0])])
         place = 0
@@ -48,6 +64,12 @@ def getFc7Array(reorder = True):
         return np.array(reorder_fc7)
     else:
         return np.array(fc7)
+
+def normalize(v):
+    norm = np.linalg.norm(v)
+    if norm == 0: 
+       return v
+    return v / norm
 
 def getTestLabel():
     f = open('./out.txt')
