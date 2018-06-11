@@ -80,3 +80,4 @@ def vote(a,b,c):
 	if a == c:
 		return a
 	return a
+

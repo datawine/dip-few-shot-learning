@@ -12,9 +12,13 @@ from sklearn import neighbors
 from sklearn.svm import SVC, LinearSVC
 import sys
 
+from sklearn import linear_model
+
 tf.app.flags.DEFINE_string("alexnet_classes", "./imagenet-classes.txt", "label dir")
 tf.app.flags.DEFINE_boolean("use_alexnet", True, "use alexnet")
 tf.app.flags.DEFINE_float("keep_prob", 0.5, "drop out rate")
+
+tf.app.flags.DEFINE_boolean("use_logistic", False, "use logistic regression")
 
 tf.app.flags.DEFINE_boolean("use_protonet", True, "use prototype network")
 tf.app.flags.DEFINE_integer("protonet_selected", 10, "protonet select num")
@@ -24,16 +28,15 @@ tf.app.flags.DEFINE_integer("protonet_classnum", 50, "protonet class num")
 tf.app.flags.DEFINE_integer("protonet_epoch", 30, "protonet train epoch")
 
 tf.app.flags.DEFINE_boolean("use_finetune_1", False, "finetune 1")
-tf.app.flags.DEFINE_integer("finetune1_classnum", 50, "protonet class num")
-tf.app.flags.DEFINE_integer("finetune1_itemnum", 10, "protonet class num")
-tf.app.flags.DEFINE_integer("finetune1_epochnum", 100, "protonet class num")
-tf.app.flags.DEFINE_integer("finetune1_epoch", 150, "protonet train epoch")
+tf.app.flags.DEFINE_integer("finetune1_classnum", 50, "finetune class num")
+tf.app.flags.DEFINE_integer("finetune1_itemnum", 10, "finetune class num")
+tf.app.flags.DEFINE_integer("finetune1_epoch", 5, "finetune train epoch")
 
 tf.app.flags.DEFINE_boolean("use_finetune_dot", False, "finetune dot")
 tf.app.flags.DEFINE_integer("train_class_num", 50, "train class num")
 tf.app.flags.DEFINE_integer("train_pic_num", 10, "train pic num")
 
-tf.app.flags.DEFINE_boolean("use_xgboost", True, "use xgboost")
+tf.app.flags.DEFINE_boolean("use_xgboost", False, "use xgboost")
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -69,7 +72,37 @@ def addXWB(x, num_in, num_out, name):
 
 with tf.Session() as sess:
     if FLAGS.use_alexnet:
-        if FLAGS.use_protonet == True:
+        if FLAGS.use_logistic == True:
+            clf = linear_model.LogisticRegression()
+
+            input_x = tf.placeholder(tf.float32, [None, 227, 227, 3])
+            model = AlexNet(input_x, 1, 1000, [])
+            tf.global_variables_initializer().run()
+            model.load_initial_weights(sess)
+
+            train_dict = readTrainSet()
+            train_set = loadTrainSet(train_dict)
+            test_set = loadTestNp()
+            test_ans = loadCorrectLabel()
+
+            train_epoch = np.zeros((50, 227, 227, 3))
+            train_epoch_label = np.zeros((50,))
+            for i in range(10):
+                for c in range(50):
+                    train_epoch[c] = train_set[c + 1][i + 1]
+                    train_epoch_label[c] = c + 1
+                _fc = sess.run([model.fc7], feed_dict={input_x: train_epoch})[0]
+                clf.fit(_fc, train_epoch_label)
+
+            test_label = np.zeros((2500, ))
+            _fc = sess.run([model.fc7], feed_dict={input_x: np.reshape(test_set, (-1, 227, 227, 3))})[0]
+            for i in range(2500):
+                test_label[i] = test_ans[i + 1]
+
+            acc = clf.score(_fc, test_label)
+
+            print (acc)
+        elif FLAGS.use_protonet == True:
             input_support = tf.placeholder(tf.float32, [None, None, 227, 227, 3])
             input_query = tf.placeholder(tf.float32, [None, None, 227, 227, 3])
             support_shape = tf.shape(input_support)
@@ -83,7 +116,7 @@ with tf.Session() as sess:
                             tf.reshape(input_query, [num_classes2 * num_queries, 227, 227, 3])], 0)            
 
             model = AlexNet(emb_input, 1, 1000, [])
-            fc9 = addXWB(model.fc8, 1000, 512, "fc9")
+            fc9 = addXWB(model.fc7, 4096, 512, "fc9")
 #            fc10 = addXWB(fc9, 512, 512, "fc10")
             emb_dim = tf.shape(fc9)[-1]
 
@@ -93,8 +126,6 @@ with tf.Session() as sess:
             emb_support = tf.reduce_mean(tf.reshape(emb_support, [num_classes, num_support, emb_dim]), axis=1)
 
             def euclidean_distance(a, b):
-                # a.shape = N x D
-                # b.shape = M x D
                 N, D = tf.shape(a)[0], tf.shape(a)[1]
                 M = tf.shape(b)[0]
                 a = tf.tile(tf.expand_dims(a, axis=1), (1, M, 1))
@@ -144,6 +175,62 @@ with tf.Session() as sess:
             
             p = sess.run([pred], feed_dict={input_support: support, input_query: test_set})[0]
 
+            ans = np.zeros((2500,))
+            cnt = 0
+            for i in range(2500):
+                ans[i] = int(p[i]) + 1
+                if int(p[i]) + 1 == test_ans[i + 1]:
+                    cnt = cnt + 1
+            print (cnt / 2500.0)
+
+            print ("total time: " + str(time.time() - start_time))
+
+            np.save("./res/protonet.npy", ans)
+        elif FLAGS.use_finetune_1 == True:
+            input_x = tf.placeholder(tf.float32, [None, 227, 227, 3])
+            label = tf.placeholder(tf.int32, [None])
+
+            model = AlexNet(input_x, 1, 1000, [])
+
+            fc9 = addXWB(model.fc7, 4096, 50, "fc9")
+
+            loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=label, logits=fc9))
+        
+            pred = tf.argmax(fc9, 1)
+            correct_pred = tf.equal(tf.cast(pred, tf.int32), tf.cast(label, tf.int32))
+        
+            acc = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
+
+            train_op = tf.train.AdamOptimizer(1).minimize(loss)
+
+            tf.global_variables_initializer().run()
+            model.load_initial_weights(sess)
+
+            train_dict = readTrainSet()
+            train_set = loadTrainSet(train_dict)
+            test_set = loadTestNp()
+            test_ans = loadCorrectLabel()
+            test_set = np.reshape(test_set, (-1, 227, 227, 3))
+
+            x = np.zeros((FLAGS.finetune1_classnum * FLAGS.finetune1_itemnum,  227, 227, 3))
+            y = np.zeros((FLAGS.finetune1_classnum * FLAGS.finetune1_itemnum, ))
+            for epi in range(FLAGS.finetune1_epoch):
+                cnt = 0
+                for epi_cls in range(FLAGS.finetune1_classnum):
+                    selected = np.random.permutation(10)[: FLAGS.finetune1_itemnum]
+                    for j, sel in enumerate(selected):
+                        x[cnt] = train_set[epi_cls + 1][sel + 1]
+                        y[cnt] = epi_cls
+                        cnt = cnt + 1
+
+                _, _loss, _acc = sess.run([train_op, loss, acc], feed_dict={input_x: x, label: y})
+
+#                if True:
+                if (epi + 1) % 5 == 0:
+                    print ('[episode {}/{}] => loss: {:.5f}, acc: {:.5f}'.format(epi + 1, FLAGS.finetune1_epoch, _loss, _acc))
+                    
+            p = sess.run([pred], feed_dict={input_x: test_set})[0]
+
             cnt = 0
             for i in range(2500):
                 if int(p[i]) + 1 == test_ans[i + 1]:
@@ -152,40 +239,6 @@ with tf.Session() as sess:
 
             print ("total time: " + str(time.time() - start_time))
 
-        elif FLAGS.use_finetune_1 == True:
-            input_x = tf.placeholder(tf.float32, [None, 227, 227, 3])
-            label = tf.placeholder(tf.int32, [None])
-
-            model = AlexNet(input_x, FLAGS.keep_prob, 1000, [])
-
-            fc9 = addXWB(model.fc8, 1000, 256, "fc9")
-            fc10 = addXWB(fc9, 256, 50, "fc10")
-
-            loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=label, logits=fc10))
-        
-            correct_pred = tf.equal(tf.cast(tf.argmax(fc10, 1), tf.int32), tf.cast(label, tf.int32))
-        
-            pred = tf.argmax(fc10, 1)
-            acc = tf.reduce_mean(tf.cast(correct_pred, tf.float32))
-
-            train_op = tf.train.AdamOptimizer(0.01).minimize(loss)
-
-            tf.global_variables_initializer().run()
-            model.load_initial_weights(sess)
-
-            train_dict = readTrainSet()
-            train_set = loadTrainSet(train_dict)
-
-            for i in range(FLAGS.finetune1_epoch):
-                x, _label = finetune_utils.genTrainSet(train_set, FLAGS.finetune1_epochnum)
-                _, lss, ac = sess.run([train_op, loss, acc], feed_dict={input_x: x, label: _label})
-
-                if (i + 1) % 5 == 0:
-                    print ('[episode {}/{}] => loss: {:.5f}, acc: {:.5f}'.format(i + 1, FLAGS.finetune1_epoch, lss, ac))
-                    
-            x, _label = finetune_utils.genTestSet(train_set)
-            lss, ac = sess.run([loss, acc], feed_dict={input_x: x, label: _label})
-            print ("final acc =>", ac)
         elif FLAGS.use_finetune_dot == True:
             input_x = tf.placeholder(tf.float32, [None, 227, 227, 3])
             label = tf.placeholder(tf.int32, [None])
