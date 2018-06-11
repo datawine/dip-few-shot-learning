@@ -373,7 +373,7 @@ with tf.Session() as sess:
             print("for adaboost")
             input_x = tf.placeholder(tf.float32, [None, 227, 227, 3])
             label = tf.placeholder(tf.int32, [None])
-            adaboost = AdaBoostClassifier(DecisionTreeClassifier(max_depth=15, min_samples_split=70, min_samples_leaf=25),
+            adaboost = AdaBoostClassifier(DecisionTreeClassifier(max_depth=17, min_samples_split=90, min_samples_leaf=35),
                          n_estimators=300, learning_rate=0.5)
 
             model = AlexNet(input_x, 1.0, 1000, [])
