@@ -179,6 +179,8 @@ with tf.Session() as sess:
             p = sess.run([pred], feed_dict={input_support: support, input_query: test_set})[0]
 
             ans = np.zeros((2500,))
+            for i in range(2500):
+                ans[i] = int(p[i]) + 1
 
             print ("total time: " + str(time.time() - start_time))
 
